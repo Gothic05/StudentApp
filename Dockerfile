@@ -3,32 +3,42 @@ FROM maven:3.9.6-eclipse-temurin-17 AS build
 
 WORKDIR /app
 
-# Copy the entire repository
+# Copy the repository into the build container
 COPY . .
 
-# Find the Maven project, build it, and copy its JAR to a known location
-RUN set -eu; 
-    POM_FILE="$(find /app -type f -name pom.xml -not -path '*/target/*' -print -quit)"; 
-    if [ -z "$POM_FILE" ]; then 
-        echo "ERROR: No pom.xml found in the Docker build context"; 
+# Build from the project root or the nested project directory
+RUN if [ -f pom.xml ]; then 
+        mvn clean package -DskipTests; 
+    elif [ -f student-management/student-management/pom.xml ]; then 
+        cd student-management/student-management && mvn clean package -DskipTests; 
+    elif [ -f student-management/pom.xml ]; then 
+        cd student-management && mvn clean package -DskipTests; 
+    else 
+        echo "ERROR: pom.xml not found in expected locations"; 
+        find . -name pom.xml -print; 
         exit 1; 
-    fi; 
-    PROJECT_DIR="$(dirname "$POM_FILE")"; 
-    echo "Found Maven project: $PROJECT_DIR"; 
-    mvn -f "$POM_FILE" clean package -DskipTests; 
-    JAR_FILE="$(find "$PROJECT_DIR/target" -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -print -quit)"; 
-    if [ -z "$JAR_FILE" ]; then 
-        echo "ERROR: No packaged JAR found"; 
-        exit 1; 
-    fi; 
-    cp "$JAR_FILE" /app/app.jar
+    fi
 
 # Step 2: Run the application using Java 17
 FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-COPY --from=build /app/app.jar app.jar
+# Copy the generated JAR from the supported project locations
+COPY --from=build /app/target/*.jar /tmp/root-app.jar
+COPY --from=build /app/student-management/target/*.jar /tmp/nested-app.jar
+COPY --from=build /app/student-management/student-management/target/*.jar /tmp/deep-nested-app.jar
+
+RUN if [ -f /tmp/root-app.jar ]; then 
+        cp /tmp/root-app.jar app.jar; 
+    elif [ -f /tmp/nested-app.jar ]; then 
+        cp /tmp/nested-app.jar app.jar; 
+    elif [ -f /tmp/deep-nested-app.jar ]; then 
+        cp /tmp/deep-nested-app.jar app.jar; 
+    else 
+        echo "ERROR: Built JAR not found"; 
+        exit 1; 
+    fi
 
 EXPOSE 8080
 
