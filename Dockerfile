@@ -3,43 +3,24 @@ FROM maven:3.9.6-eclipse-temurin-17 AS build
 
 WORKDIR /app
 
-# Copy the repository into the build container
-COPY . .
+# Copy the project ZIP from the GitHub repository
+COPY student-management.zip /tmp/student-management.zip
 
-# Build from the project root or the nested project directory
-RUN if [ -f pom.xml ]; then 
-        mvn clean package -DskipTests; 
-    elif [ -f student-management/student-management/pom.xml ]; then 
-        cd student-management/student-management && mvn clean package -DskipTests; 
-    elif [ -f student-management/pom.xml ]; then 
-        cd student-management && mvn clean package -DskipTests; 
-    else 
-        echo "ERROR: pom.xml not found in expected locations"; 
-        find . -name pom.xml -print; 
-        exit 1; 
-    fi
+# Extract the project files
+RUN apt-get update && apt-get install -y unzip && unzip -q /tmp/student-management.zip -d /app/source && rm -rf /var/lib/apt/lists/*
+
+# Find pom.xml, build the project, and save the generated JAR
+RUN POM="$(find /app/source -type f -name pom.xml -print -quit)" && test -n "$POM" && echo "Building project from $POM" && mvn -f "$POM" clean package -DskipTests && JAR="$(find "$(dirname "$POM")/target" -maxdepth 1 -type f -name '*.jar' ! -name '*.original' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -print -quit)" && test -n "$JAR" && cp "$JAR" /app/app.jar
 
 # Step 2: Run the application using Java 17
 FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-# Copy the generated JAR from the supported project locations
-COPY --from=build /app/target/*.jar /tmp/root-app.jar
-COPY --from=build /app/student-management/target/*.jar /tmp/nested-app.jar
-COPY --from=build /app/student-management/student-management/target/*.jar /tmp/deep-nested-app.jar
-
-RUN if [ -f /tmp/root-app.jar ]; then 
-        cp /tmp/root-app.jar app.jar; 
-    elif [ -f /tmp/nested-app.jar ]; then 
-        cp /tmp/nested-app.jar app.jar; 
-    elif [ -f /tmp/deep-nested-app.jar ]; then 
-        cp /tmp/deep-nested-app.jar app.jar; 
-    else 
-        echo "ERROR: Built JAR not found"; 
-        exit 1; 
-    fi
+# Copy the compiled JAR
+COPY --from=build /app/app.jar app.jar
 
 EXPOSE 8080
 
+# Start the application on Render's assigned port
 ENTRYPOINT ["sh", "-c", "java -Dserver.port=${PORT:-8080} -jar app.jar"]
