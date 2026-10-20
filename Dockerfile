@@ -1,11 +1,18 @@
-# Step 1: Build the artifact using Maven 3.9.6 and Java 17
+# Step 1: Build the application using Maven 3.9.6 and Java 17
 FROM maven:3.9.6-eclipse-temurin-17 AS build
+# Set the project root
+WORKDIR /app
+# Copy the project files from GitHub
 COPY . .
-# Navigate into the subfolders before running the build command
-RUN cd student-management/student-management && mvn clean package -DskipTests
-# Step 2: Run the built JAR file using a slim Java 17 runtime
+# Build directly from the directory containing pom.xml
+RUN mvn clean package -DskipTests
+# Step 2: Run the built JAR using Java 17
 FROM eclipse-temurin:17-jre-alpine
-# Copy the compiled jar from the nested target folder
-COPY --from=build /student-management/student-management/target/*.jar app.jar
+# Set the application directory
+WORKDIR /app
+# Copy the compiled JAR from the build stage
+COPY --from=build /app/target/*.jar app.jar
+# Application port
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","app.jar"]
+# Start the Spring Boot application
+ENTRYPOINT ["java", "-jar", "app.jar"]
